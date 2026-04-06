@@ -1,0 +1,178 @@
+tiers:
+  patch:
+    description: "< 50k tokens estimated, single module, no arch change"
+    token_budget: "< 50k"
+    states: [INTAKE, BRIEF, PLAN, BUILD, REVIEW, SHIP, CLOSED]
+  feature:
+    description: "50k-300k tokens estimated, contained scope, existing architecture"
+    token_budget: "50k-300k"
+    states: [INTAKE, BRIEF, DESIGN, PLAN, BUILD, REVIEW, SHIP, CLOSED]
+  project:
+    description: "> 300k tokens estimated, new repo or major arch change"
+    token_budget: "> 300k"
+    states: [INTAKE, BRIEF, DESIGN, ARCHITECTURE, PLAN, BUILD, REVIEW, SHIP, CLOSED]
+
+states:
+  INTAKE:
+    linear_state: Backlog
+    actor: pa
+    entry_criteria: []
+    exit_criteria: [tier_classified, projects_yaml_updated, linear_project_created]
+    artifacts: [projects_yaml_entry, linear_project]
+    approval_gate: false
+
+  BRIEF:
+    linear_state: Backlog
+    actor: pa
+    entry_criteria: [intake_complete]
+    exit_criteria: [brief_written, inter_agent_agreement_reached, pm_signed_off, operator_approved]
+    artifacts: [brief_section_in_project_summary]
+    approval_gate: true
+    approval_by: operator
+    inter_agent_review: true
+    producer_role: pa
+    critic_role: domain_expert_subagent
+    pm_signoff_required: true
+
+  DESIGN:
+    linear_state: Backlog
+    actor: design_subagent
+    entry_criteria: [brief_approved]
+    exit_criteria: [design_spec_generated, critique_addressed, operator_approved]
+    artifacts: [design_spec_json, wireframe_svgs, design_critique_report]
+    approval_gate: true
+    approval_by: operator
+    tiers: [feature, project]
+    optional: true
+    skip_condition: "project has no UI (backend-only, infra, CLI, library)"
+    inter_agent_review: true
+    producer_role: design_subagent
+    critic_role: ux_critic_subagent
+    pm_signoff_required: true
+    tools:
+      - "scripts/design-producer.py --brief <brief_file> --output-dir <dir> --wireframes --verbose"
+      - "scripts/wireframe-gen.py --input <spec.json> --output-dir <dir>"
+    notes: >
+      Optional phase for UI-heavy projects. Skipped for backend-only, infra, CLI, or library projects.
+      The operator decides at BRIEF approval whether to enter DESIGN or skip to PLAN/ARCHITECTURE.
+      Design artifacts (screen specs, flow map, wireframes, critique) feed into ARCHITECTURE (project tier)
+      or PLAN (feature tier) as input constraints.
+
+  ARCHITECTURE:
+    linear_state: In Progress
+    actor: architect_subagent
+    entry_criteria: [brief_approved]
+    exit_criteria: [architecture_doc_written, inter_agent_agreement_reached, pm_signed_off, operator_approved]
+    artifacts: [architecture_section_in_project_summary]
+    approval_gate: true
+    approval_by: operator
+    tiers: [project]
+    inter_agent_review: true
+    producer_role: architect_subagent
+    critic_role: senior_engineer_subagent
+    pm_signoff_required: true
+
+  PLAN:
+    linear_state: Todo
+    actor: pa
+    entry_criteria: [brief_approved]
+    exit_criteria: [linear_issues_created, inter_agent_agreement_reached, pm_signed_off, operator_approved]
+    artifacts: [plan_section, linear_issues]
+    approval_gate: true
+    approval_by: operator
+    inter_agent_review: true
+    producer_role: planner_subagent
+    critic_role: tech_lead_subagent
+    pm_signoff_required: true
+
+  BUILD:
+    linear_state: In Dev
+    actor: developer_acp
+    entry_criteria: [plan_approved]
+    exit_criteria: [all_tasks_complete, all_tests_pass, api_schemas_verified]
+    artifacts: [code_on_branch, test_results, api_schema_section]
+    approval_gate: false
+
+  REVIEW:
+    linear_state: Review
+    actor: reviewer_subagent
+    entry_criteria: [build_complete]
+    exit_criteria: [inter_agent_agreement_reached, pm_signed_off, operator_approved]
+    artifacts: [pr_with_review, review_summary]
+    approval_gate: true
+    approval_by: operator
+    inter_agent_review: true
+    producer_role: reviewer_subagent
+    critic_role: qa_subagent
+    critic_task_hint: "qa_subagent: read the review checklist file (not the project doc). Verify claims against actual system state: check src/ vs dist/ discrepancies, verify git commits exist, check test output is real. Identify untested items, glossed-over checks, missing edge cases."
+    pm_signoff_required: true
+
+  SHIP:
+    linear_state: In Prod
+    actor: pa
+    entry_criteria: [review_approved]
+    exit_criteria: [merged, deployed, tracking_updated, test_verification_passed, linear_audit_passed, human_e2e_passed]
+    artifacts: [merged_pr, updated_projects_yaml, test_verification_report, linear_audit_report, human_e2e_section]
+    approval_gate: false
+
+  CLOSED:
+    linear_state: Done
+    actor: pa
+    entry_criteria: [ship_complete]
+    exit_criteria: [retrospective_written]
+    artifacts: [retrospective_note]
+    approval_gate: false
+
+transitions:
+  - from: INTAKE
+    to: BRIEF
+    condition: automatic
+  - from: BRIEF
+    to: DESIGN
+    condition: "tier in ['feature', 'project'] and has_ui and operator_approved"
+  - from: BRIEF
+    to: ARCHITECTURE
+    condition: "tier == 'project' and not has_ui and operator_approved"
+  - from: BRIEF
+    to: PLAN
+    condition: "tier in ['feature', 'patch'] and not has_ui and operator_approved"
+  - from: DESIGN
+    to: ARCHITECTURE
+    condition: "tier == 'project' and operator_approved"
+  - from: DESIGN
+    to: PLAN
+    condition: "tier in ['feature', 'patch'] and operator_approved"
+  - from: ARCHITECTURE
+    to: PLAN
+    condition: operator_approved
+  - from: PLAN
+    to: BUILD
+    condition: operator_approved
+  - from: PLAN
+    to: PLAN
+    condition: "plan_revision_needed"
+  - from: BUILD
+    to: REVIEW
+    condition: "all_tasks_complete and all_tests_pass"
+  - from: BUILD
+    to: BUILD
+    condition: "tasks_remaining or tests_failed"
+  - from: REVIEW
+    to: SHIP
+    condition: operator_approved
+  - from: REVIEW
+    to: BUILD
+    condition: operator_rejected
+  - from: SHIP
+    to: CLOSED
+    condition: "deployed and tracking_updated"
+
+linear_state_map:
+  Backlog: [INTAKE, BRIEF, DESIGN]
+  Todo: [ARCHITECTURE]
+  "In Progress": [PLAN]
+  "In Dev": [BUILD]
+  Review: [REVIEW]
+  "In Prod": [SHIP]
+  Done: [CLOSED]
+  Canceled: []
