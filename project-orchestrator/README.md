@@ -1,240 +1,210 @@
 # Project Orchestrator
 
-Deterministic state machine for software project lifecycle management. Enforces tier-based workflows with approval gates, multi-layer inter-agent review loops, and Linear state sync.
+Structured project lifecycle orchestration for OpenClaw.
 
-## What it does
+This skill adds a deterministic state machine around tracked software projects so work moves through explicit stages, required artifacts, review loops, and approval gates instead of ad-hoc status changes.
 
-Tracks projects through a fixed state flow:
+## What it is for
 
-```
+Use this skill when you want OpenClaw to manage a real project in a workspace that already tracks projects in `PROJECTS.yaml`.
+
+It is most useful when you want:
+
+- predictable stage transitions
+- explicit approval gates before major work proceeds
+- artifact validation before transitions
+- structured producer/critic review loops
+- optional Linear project and issue sync
+- a clear paper trail in `projects/<name>.md`
+
+It is not a general task manager for one-off questions or untracked work.
+
+## Lifecycle
+
+```text
 INTAKE -> BRIEF -> [DESIGN] -> [ARCHITECTURE] -> PLAN -> BUILD -> REVIEW -> SHIP -> CLOSED
 ```
 
-- **DESIGN** is optional - for UI-heavy projects. Skipped for backend-only, infra, CLI, library work.
-- **ARCHITECTURE** is project-tier only. Feature/patch tiers skip it.
-- **Tiers** determine scope: patch (< 50k tokens), feature (50k-300k tokens), project (> 300k tokens)
-- **Approval gates** at BRIEF, ARCHITECTURE, PLAN, REVIEW - the agent cannot skip these
-- **Inter-agent review** at every approval gate - artifacts are challenged by a critic before the operator sees them
-- **Linear integration** keeps project and issue states in sync with the framework states
-- **PROJECTS.yaml** is the single source of truth for project state
+Rules:
 
-## Feedback Loops
-
-The framework enforces multiple layers of quality control before anything reaches the operator for approval. At each approval-gate state, three nested loops run:
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│  OPERATOR APPROVAL LOOP (outer)                                     │
-│  Operator reads PM summary → approves or requests changes           │
-│                                                                     │
-│  ┌───────────────────────────────────────────────────────────────┐  │
-│  │  PM REVIEW LOOP (middle)                                      │  │
-│  │  PA reads agreed artifact → may trigger another iteration     │  │
-│  │  (max 3 rounds before escalating to operator anyway)          │  │
-│  │                                                               │  │
-│  │  ┌─────────────────────────────────────────────────────────┐  │  │
-│  │  │  INTER-AGENT DIALOGUE (inner)                           │  │  │
-│  │  │  Producer subagent creates artifact                     │  │  │
-│  │  │      ↓                                                  │  │  │
-│  │  │  Critic subagent challenges it (BLOCKING / SIGNIFICANT  │  │  │
-│  │  │      / MINOR issues, each rated accept/reject/partial)  │  │  │
-│  │  │      ↓                                                  │  │  │
-│  │  │  Producer responds, revises artifact                    │  │  │
-│  │  │      ↓                                                  │  │  │
-│  │  │  Both sign off on final agreed version                  │  │  │
-│  │  └─────────────────────────────────────────────────────────┘  │  │
-│  │                                                               │  │
-│  └───────────────────────────────────────────────────────────────┘  │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-### Per-state roles
-
-| State | Producer | Critic | PM |
-|-------|----------|--------|----|
-| BRIEF | PA | Domain expert | PA |
-| DESIGN | Design subagent (design-producer.py) | UX critic subagent | PA |
-| ARCHITECTURE | Architect subagent | Senior engineer subagent | PA |
-| PLAN | Planner subagent | Tech lead subagent | PA |
-| REVIEW | Reviewer subagent | QA subagent | PA |
-
-### Inter-agent dialogue protocol
-
-1. **Producer** writes the artifact (architecture doc, plan, etc.) to the project summary file
-2. **Critic** reads the artifact and raises issues rated BLOCKING / SIGNIFICANT / MINOR
-3. **Producer** responds: ACCEPT / REJECT / PARTIAL for each issue, revises artifact
-4. Both write a sign-off to `projects/<name>-review-<stage>-<role>.md`
-5. **PA (PM role)** reads both files, synthesizes, may request another iteration (max 3 rounds)
-6. PA presents to operator for final approval
-
-The `validate` command fails (exit 2) if the current state requires inter-agent review and sign-offs are missing. The `review-status` command shows the current state of review files.
-
-### Why this matters
-
-Without a critic loop, every artifact goes straight to the operator with no pre-filtering. Common failure modes that the inner loop catches before they reach the operator:
-
-- Architecture: timing constraint violations, concurrency bugs, unhandled failure modes
-- Plan: missing tasks, wrong sequencing, underestimated complexity
-- Review: untested edge cases, missing rollback steps, incomplete acceptance criteria
-
-The PM loop (middle) catches cases where the critic and producer agreed on something that still doesn't match the brief - the PA checks alignment before presenting to the operator.
-
-## State machine
+- `DESIGN` is optional and intended for UI-heavy work.
+- `ARCHITECTURE` is only used for `project` tier work.
+- Any state can transition to `CANCELED`.
+- Approval gates exist at `BRIEF`, `ARCHITECTURE`, `PLAN`, and `REVIEW`.
 
 ### Tier flows
 
-**patch (no UI):**
-```
-INTAKE → BRIEF → PLAN → BUILD → REVIEW → SHIP → CLOSED
-```
-
-**feature (no UI):**
-```
-INTAKE → BRIEF → PLAN → BUILD → REVIEW → SHIP → CLOSED
+**patch**
+```text
+INTAKE -> BRIEF -> PLAN -> BUILD -> REVIEW -> SHIP -> CLOSED
 ```
 
-**feature (with UI):**
-```
-INTAKE → BRIEF → DESIGN → PLAN → BUILD → REVIEW → SHIP → CLOSED
-```
-
-**project (no UI):**
-```
-INTAKE → BRIEF → ARCHITECTURE → PLAN → BUILD → REVIEW → SHIP → CLOSED
+**feature**
+```text
+INTAKE -> BRIEF -> PLAN -> BUILD -> REVIEW -> SHIP -> CLOSED
 ```
 
-**project (with UI):**
+**feature with UI design**
+```text
+INTAKE -> BRIEF -> DESIGN -> PLAN -> BUILD -> REVIEW -> SHIP -> CLOSED
 ```
-INTAKE → BRIEF → DESIGN → ARCHITECTURE → PLAN → BUILD → REVIEW → SHIP → CLOSED
+
+**project**
+```text
+INTAKE -> BRIEF -> ARCHITECTURE -> PLAN -> BUILD -> REVIEW -> SHIP -> CLOSED
 ```
 
-Any state can transition to `CANCELED`.
+**project with UI design**
+```text
+INTAKE -> BRIEF -> DESIGN -> ARCHITECTURE -> PLAN -> BUILD -> REVIEW -> SHIP -> CLOSED
+```
 
-### Approval gates
+## Workspace expectations
 
-States with `approval_gate: true`: **BRIEF, ARCHITECTURE, PLAN, REVIEW**
+This skill assumes a standard OpenClaw workspace with at least:
 
-At each gate:
-1. Run `validate <name>` - confirms artifacts exist and inter-agent sign-offs are present
-2. PA presents summary to operator
-3. Operator approves (or requests changes)
-4. Run `transition <name> <TARGET_STATE>`
+- `PROJECTS.yaml`
+- `projects/`
+- `skills/project-orchestrator/`
 
-Never auto-approve. Never skip gates.
+The scripts auto-detect the workspace by:
 
-### Linear state mapping
+1. `OPENCLAW_WORKSPACE`
+2. walking upward from the current directory looking for `PROJECTS.yaml`
+3. falling back to `~/.openclaw/workspace`
 
-| Framework State | Linear State |
-|----------------|-------------|
-| INTAKE, BRIEF, DESIGN | Backlog |
-| ARCHITECTURE | Todo |
-| PLAN | In Progress |
-| BUILD | In Dev |
-| REVIEW | Review |
-| SHIP | In Prod |
-| CLOSED | Done |
-| CANCELED | Canceled |
+## Prerequisites
 
-## Design Phase (optional)
+### Required
 
-Full optional state in the orchestrator lifecycle for UI-heavy projects. Runs after BRIEF, before ARCHITECTURE (project tier) or PLAN (feature tier). Skipped for backend-only, infra, CLI, and library projects - the operator decides at BRIEF approval.
+- Python 3.10+
+- an OpenClaw workspace using `PROJECTS.yaml`
 
-Uses a 5-step LLM prompt chain (DECOMPOSE -> DESIGN -> STITCH -> CRITIQUE -> REFINE) to produce structured screen specs, flow maps, wireframes, and a design critique. Output feeds directly into the next phase as input constraints.
+### Optional
 
-**Inter-agent review:** Design subagent (producer) runs `design-producer.py`, then UX critic subagent reviews the output for accessibility, consistency, edge cases, and missing states. Same inner/middle/outer feedback loop as other approval gates.
+- Linear credentials if you want project and issue sync
+- `anthropic` Python package plus an Anthropic API key if you want to use the design generator
+- a runtime that can launch subagents if you want the full producer/critic review workflow
 
-### `scripts/design-producer.py`
+## Install
 
-Runs: DECOMPOSE -> DESIGN -> STITCH -> CRITIQUE -> REFINE
+From your workspace root:
 
 ```bash
-python3 scripts/design-producer.py --brief <file> [--output-dir <dir>] [--model claude-sonnet-4-6] [--wireframes] [--verbose]
+mkdir -p ~/.openclaw/workspace/skills
+cp -r /path/to/openclaw-agent-skills/project-orchestrator ~/.openclaw/workspace/skills/
 ```
 
-**API key sourcing** (in order):
-1. `--api-key` flag
-2. `ANTHROPIC_API_KEY` env var
-3. Auto-detected from OpenClaw `auth-profiles.json` (`~/.openclaw/agents/main/agent/auth-profiles.json`)
-
-OAuth tokens (`sk-ant-oat*`) are auto-detected - the script adds the required Bearer auth and Claude Code identity headers automatically. No manual key configuration needed on OpenClaw instances.
-
-**Output:** JSON with `screens`, `flow_map`, `user_stories`, `edge_cases`, `design_notes`, `metadata`.
-
-### `scripts/wireframe-gen.py`
-
-Generates SVG wireframes from design spec JSON. 12 component types, zero external dependencies.
+Or symlink it:
 
 ```bash
-python3 scripts/wireframe-gen.py --input <spec.json> [--output-dir <dir>] [--viewport 1440x900]
-```
-
-See `references/design-workflow.md` for full process documentation.
-
-## Scripts
-
-### `scripts/orchestrator.py`
-
-Core state machine. Commands:
-
-```bash
-python3 scripts/orchestrator.py init <name> --tier <patch|feature|project> [--display-name "..."] [--description "..."]
-python3 scripts/orchestrator.py status <name>
-python3 scripts/orchestrator.py validate <name>
-python3 scripts/orchestrator.py transition <name> <TARGET_STATE>
-python3 scripts/orchestrator.py plan <name>
-python3 scripts/orchestrator.py review-status <name>
-```
-
-Run from workspace root. All output is JSON. Exit codes: 0 = success, 1 = invalid, 2 = missing artifacts/sign-offs.
-
-`init` can create a Linear project and save `linear_project_id` to PROJECTS.yaml when the required Linear environment variables are set.
-
-### `scripts/linear_integration.py`
-
-Linear API integration. Commands: `create-project`, `create-issue`, `create-issues-from-plan`, `update-state`, `sync-state`, `add-comment`, `get-issue`, `validate-transition`.
-
-Requires `LINEAR_TOKEN` or `LINEAR_API_TOKEN` in the environment. Optional IDs such as team, lead, and default assignee should also be provided via environment variables.
-
-## Review artifacts
-
-Review files live in `projects/` alongside the project summary:
-
-```
-projects/
-  my-project.md                          # main summary (brief + architecture + plan)
-  my-project-review-architecture-engineer.md   # senior engineer critique
-  my-project-review-architecture-architect.md  # architect response + sign-off
-```
-
-Template: `references/templates/inter-agent-review.md`
-
-## Templates
-
-| Template | Used at |
-|----------|---------|
-| `brief.md` | BRIEF state |
-| `design-spec.md` | DESIGN state |
-| `architecture.md` | ARCHITECTURE state |
-| `plan.md` | PLAN state |
-| `review-checklist.md` | REVIEW state |
-| `inter-agent-review.md` | Every approval-gate review dialogue |
-
-## Pre-close verification
-
-Before transitioning SHIP → CLOSED, two independent subagent audits are required:
-
-1. **Test audit** - independent subagent reviews test output logs (no codebase access). Confirms tests actually ran, pass count is real, no suspicious patterns.
-2. **Linear audit** - subagent queries all Linear issues, confirms every issue has a final state with delivery comment.
-
-Both must pass. Include audit reports in the project summary before closing.
-
-## Installation
-
-```bash
-# Copy (one-time)
-cp -r project-orchestrator ~/.openclaw/workspace/skills/
-
-# Or symlink (stays up to date when repo is pulled)
 ln -s /path/to/openclaw-agent-skills/project-orchestrator ~/.openclaw/workspace/skills/project-orchestrator
 ```
+
+## Core commands
+
+Run these from the workspace root.
+
+```bash
+python3 skills/project-orchestrator/scripts/orchestrator.py init <name> --tier <patch|feature|project>
+python3 skills/project-orchestrator/scripts/orchestrator.py status <name>
+python3 skills/project-orchestrator/scripts/orchestrator.py validate <name>
+python3 skills/project-orchestrator/scripts/orchestrator.py transition <name> <TARGET_STATE>
+python3 skills/project-orchestrator/scripts/orchestrator.py plan <name>
+python3 skills/project-orchestrator/scripts/orchestrator.py review-status <name>
+```
+
+All commands return JSON.
+
+## Typical workflow
+
+1. Initialize a tracked project with `init`.
+2. Fill in the project entry in `PROJECTS.yaml`.
+3. Write the current-stage artifact in `projects/<name>.md` using the provided templates.
+4. Run `validate` before every approval gate or transition.
+5. Use `transition` to move to the next valid state.
+6. Keep review files and audit artifacts alongside the project summary.
+
+## Review model
+
+The recommended pattern at approval gates is:
+
+```text
+producer -> critic -> project-manager review -> operator approval
+```
+
+In practice that means:
+
+- one agent or subagent produces the artifact
+- a second agent critiques it and raises issues
+- a coordinating project-manager pass checks whether the result is ready
+- the human operator gives final approval
+
+The repository includes a reusable review template at:
+
+```text
+references/templates/inter-agent-review.md
+```
+
+## Linear integration
+
+Linear support is built in, but it is a workflow choice rather than a documentation prerequisite.
+
+Relevant helpers:
+
+```bash
+python3 skills/project-orchestrator/scripts/linear_integration.py create-project
+python3 skills/project-orchestrator/scripts/linear_integration.py create-issue
+python3 skills/project-orchestrator/scripts/linear_integration.py create-issues-from-plan
+python3 skills/project-orchestrator/scripts/linear_integration.py update-state
+python3 skills/project-orchestrator/scripts/linear_integration.py sync-state
+```
+
+Set the required Linear environment variables in the workspace where you run the scripts.
+
+## Optional design workflow
+
+For UI-heavy projects, the skill includes a design generator and SVG wireframe generator.
+
+```bash
+python3 skills/project-orchestrator/scripts/design-producer.py --brief <file> --output-dir <dir> --wireframes
+python3 skills/project-orchestrator/scripts/wireframe-gen.py --input <spec.json> --output-dir <dir>
+```
+
+The design generator looks for an API key in this order:
+
+1. `--api-key`
+2. `ANTHROPIC_API_KEY`
+3. an OpenClaw `auth-profiles.json` if present
+
+## Included files
+
+```text
+project-orchestrator/
+├── SKILL.md
+├── README.md
+├── scripts/
+│   ├── orchestrator.py
+│   ├── linear_integration.py
+│   ├── pm-checker.py
+│   ├── design-producer.py
+│   └── wireframe-gen.py
+├── references/
+│   ├── state-machine.yaml
+│   ├── design-workflow.md
+│   └── templates/
+└── tests/
+```
+
+## Notes on strictness
+
+This skill is intentionally opinionated.
+
+It favors:
+
+- explicit states over informal progress updates
+- validation over trust
+- review loops over single-pass artifacts
+- operator approval over silent transitions
+
+If that is the operating model you want, this skill is a good fit.

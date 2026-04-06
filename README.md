@@ -1,41 +1,48 @@
 # OpenClaw Agent Skills
 
-Public skills for OpenClaw. Install on any instance by copying the skill directory into `~/.openclaw/workspace/skills/`.
+Public, reusable skills for OpenClaw.
+
+These directories are meant to be dropped into an OpenClaw workspace so the agent can load them as native skills.
 
 ## Available Skills
 
 | Skill | Description |
 |-------|-------------|
-| [project-orchestrator](./project-orchestrator/) | Deterministic state machine for software project lifecycle. Enforces stage-based workflows with approval gates and artifact validation. |
+| [project-orchestrator](./project-orchestrator/) | Structured project lifecycle orchestration for tracked software work. Adds explicit states, approval gates, artifact validation, review loops, and optional Linear sync. |
 
-## Installation
+## Install
 
-Copy a skill directory into your workspace:
+Skills in this repo assume a standard OpenClaw workspace layout, usually at `~/.openclaw/workspace`.
+
+### Option 1 - copy the skill
 
 ```bash
-# Clone the repo
 git clone git@github.com:justinstolzenberg-sudo/openclaw-agent-skills.git /tmp/openclaw-agent-skills
-
-# Copy the skill you need
+mkdir -p ~/.openclaw/workspace/skills
 cp -r /tmp/openclaw-agent-skills/project-orchestrator ~/.openclaw/workspace/skills/
 ```
 
-Or symlink for easier local iteration:
+### Option 2 - symlink for local iteration
 
 ```bash
-ln -s /path/to/openclaw-agent-skills/project-orchestrator ~/.openclaw/workspace/skills/project-orchestrator
+git clone git@github.com:justinstolzenberg-sudo/openclaw-agent-skills.git ~/src/openclaw-agent-skills
+mkdir -p ~/.openclaw/workspace/skills
+ln -s ~/src/openclaw-agent-skills/project-orchestrator ~/.openclaw/workspace/skills/project-orchestrator
 ```
 
-## Contributing
-
-Each skill follows the OpenClaw AgentSkills spec:
+## Repo Layout
 
 ```text
 skill-name/
-├── SKILL.md              # Required: frontmatter (name + description) + instructions
-├── scripts/              # Optional: executable scripts
-├── references/           # Optional: reference docs loaded on demand
-└── assets/               # Optional: files used in output
+├── SKILL.md      # Agent-facing instructions and trigger metadata
+├── README.md     # Human-facing overview and setup notes
+├── scripts/      # Optional executable helpers
+├── references/   # Optional reference docs and templates
+└── assets/       # Optional output assets
 ```
 
-Keep `SKILL.md` concise. Move detailed reference material to `references/`. Only include files the agent actually needs.
+## Notes
+
+- `SKILL.md` is the source of truth for the agent.
+- `README.md` is for humans installing or evaluating the skill.
+- Keep skills lean. Put detailed examples and templates in `references/` rather than bloating `SKILL.md`.
