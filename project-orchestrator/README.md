@@ -112,6 +112,11 @@ python3 skills/project-orchestrator/scripts/orchestrator.py validate <name>
 python3 skills/project-orchestrator/scripts/orchestrator.py transition <name> <TARGET_STATE>
 python3 skills/project-orchestrator/scripts/orchestrator.py plan <name>
 python3 skills/project-orchestrator/scripts/orchestrator.py review-status <name>
+python3 skills/project-orchestrator/scripts/orchestrator.py record-receipt <name> --kind approval --role operator
+python3 skills/project-orchestrator/scripts/orchestrator.py record-receipt <name> --kind child --role producer
+python3 skills/project-orchestrator/scripts/orchestrator.py record-receipt <name> --kind child --role critic
+python3 skills/project-orchestrator/scripts/orchestrator.py record-receipt <name> --kind child --role pm
+python3 skills/project-orchestrator/scripts/orchestrator.py record-receipt <name> --kind pm_session --role pm --session-label pm-<state>
 ```
 
 All commands return JSON.
@@ -121,9 +126,10 @@ All commands return JSON.
 1. Initialize a tracked project with `init`.
 2. Fill in the project entry in `PROJECTS.yaml`.
 3. Write the current-stage artifact in `projects/<name>.md` using the provided templates.
-4. Run `validate` before every approval gate or transition.
-5. Use `transition` to move to the next valid state.
-6. Keep review files and audit artifacts alongside the project summary.
+4. At approval-gate states, persist structured child, PM-session, and operator approval receipts with `record-receipt`.
+5. Run `validate` before every approval gate or transition. It fails closed on missing or stale artifacts/receipts.
+6. Use `transition` to move to the next valid state only after `validate` is clean.
+7. Keep review files and audit artifacts alongside the project summary.
 
 ## Review model
 
@@ -138,6 +144,7 @@ In practice that means:
 - one agent or subagent produces the artifact
 - a second agent critiques it and raises issues
 - a coordinating project-manager pass checks whether the result is ready
+- structured receipts bind those sign-offs to the exact current artifact
 - the human operator gives final approval
 
 The repository includes a reusable review template at:

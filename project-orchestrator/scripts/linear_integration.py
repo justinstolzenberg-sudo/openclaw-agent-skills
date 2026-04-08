@@ -465,7 +465,7 @@ def cmd_get_issue(args):
         result = graphql(query, {"identifier": identifier})
         issue = result["data"]["issue"]
     else:
-        # Parse identifier like "MET-8503" into team key + number
+        # Parse identifier like "ISSUE-1234" into team key + number
         parts = identifier.split("-")
         if len(parts) == 2:
             try:

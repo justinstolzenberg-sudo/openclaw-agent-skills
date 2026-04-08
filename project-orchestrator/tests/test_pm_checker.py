@@ -160,7 +160,7 @@ def test_missing_artifact_issue():
         entered_at: "2025-01-01T00:00:00Z"
 """
     ws = make_temp_workspace(yaml_content, {
-        "test-proj.md": "# test-proj\n## Brief\nTest.\n## Plan\nTest plan with MET-1234."
+        "test-proj.md": "# test-proj\n## Brief\nTest.\n## Plan\nTest plan with ISSUE-1234."
     })
     output, code = run_checker(ws, "test-proj")
     
@@ -216,7 +216,7 @@ def test_compliant_build():
         entered_at: "2026-03-29T09:00:00Z"
 """
     ws = make_temp_workspace(yaml_content, {
-        "test-proj.md": "# test-proj\n## Brief\nTest.\n## Plan\nPlan with MET-1234."
+        "test-proj.md": "# test-proj\n## Brief\nTest.\n## Plan\nPlan with ISSUE-1234."
     })
     output, code = run_checker(ws, "test-proj")
     
@@ -244,7 +244,7 @@ def test_verbose_includes_state_info():
         entered_at: "2026-03-29T09:00:00Z"
 """
     ws = make_temp_workspace(yaml_content, {
-        "test-proj.md": "# test-proj\n## Brief\nTest.\n## Plan\nPlan with MET-1234."
+        "test-proj.md": "# test-proj\n## Brief\nTest.\n## Plan\nPlan with ISSUE-1234."
     })
     output, code = run_checker(ws, "test-proj", verbose=True)
     

@@ -7,4 +7,4 @@
 
 | # | Task | Acceptance criteria | Estimate | Linear issue |
 |---|------|-------------------|----------|-------------|
-| 1 | [Task] | [Criteria] | [Token cost estimate] | MET-XXXX |
+| 1 | [Task] | [Criteria] | [Token cost estimate] | ISSUE-XXXX |

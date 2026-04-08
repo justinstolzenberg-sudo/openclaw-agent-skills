@@ -34,6 +34,11 @@ python3 skills/project-orchestrator/scripts/orchestrator.py validate <name>
 python3 skills/project-orchestrator/scripts/orchestrator.py transition <name> <TARGET_STATE>
 python3 skills/project-orchestrator/scripts/orchestrator.py plan <name>
 python3 skills/project-orchestrator/scripts/orchestrator.py review-status <name>
+python3 skills/project-orchestrator/scripts/orchestrator.py record-receipt <name> --kind approval --role operator
+python3 skills/project-orchestrator/scripts/orchestrator.py record-receipt <name> --kind child --role producer
+python3 skills/project-orchestrator/scripts/orchestrator.py record-receipt <name> --kind child --role critic
+python3 skills/project-orchestrator/scripts/orchestrator.py record-receipt <name> --kind child --role pm
+python3 skills/project-orchestrator/scripts/orchestrator.py record-receipt <name> --kind pm_session --role pm --session-label pm-<state>
 ```
 
 If you are already in the skill directory, `python3 scripts/orchestrator.py ...` also works.
@@ -75,12 +80,12 @@ Approval gates exist at `BRIEF`, `ARCHITECTURE`, `PLAN`, and `REVIEW`.
 
 At each gate:
 1. Run `validate <name>`.
-2. Confirm the required artifact and review files exist.
+2. Confirm the required artifact exists and persist structured receipts with `record-receipt` for producer, critic, PM, PM session, and operator approval.
 3. Present a concise summary to the human operator in the current working channel.
 4. Wait for explicit approval.
 5. Only then run `transition <name> <TARGET_STATE>`.
 
-Never auto-approve. Never skip approval gates.
+Never auto-approve. Never skip approval gates. `validate` and `transition` now fail closed if artifacts or receipts are missing or stale.
 
 ## New project workflow
 
@@ -100,8 +105,8 @@ Never auto-approve. Never skip approval gates.
 ## Transition workflow
 
 1. Run `validate <name>` first.
-2. If validation fails, fix the missing artifact or review requirement before proceeding.
-3. If the current state is an approval gate, get explicit human approval.
+2. If validation fails, fix the missing artifact or stale/missing receipt before proceeding.
+3. If the current state is an approval gate, persist the explicit human approval with `record-receipt`.
 4. Run `transition <name> <TARGET_STATE>`.
 5. Confirm the returned JSON shows the expected new state and follow-up actions.
 6. If your workspace uses Linear, verify the sync fields in the response and correct failures immediately.

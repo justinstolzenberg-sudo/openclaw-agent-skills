@@ -22,6 +22,8 @@ import sys
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
+import orchestrator as orchestrator_lib
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 SKILL_DIR = SCRIPT_DIR.parent
 
@@ -221,9 +223,39 @@ def check_inter_agent_review(project, state, state_info):
         return violations
 
     name = project.get("_name", "")
+    readiness = orchestrator_lib.evaluate_transition_readiness(load_state_machine(), name, project, state)
+    child_precondition = next((p for p in readiness.get("preconditions", []) if p.get("type") == "child_receipts"), None)
+    pm_session_precondition = next((p for p in readiness.get("preconditions", []) if p.get("type") == "pm_session_receipt"), None)
+
+    if child_precondition:
+        missing_roles = child_precondition.get("missing_roles", [])
+        stale_roles = child_precondition.get("stale_roles", {})
+        if missing_roles:
+            entered_at = _get_state_entered_at(project, state)
+            if entered_at:
+                elapsed = now_utc() - entered_at
+                if elapsed > timedelta(minutes=10):
+                    violations.append(Violation(
+                        "SIGNIFICANT", "REVIEW_RECEIPTS_MISSING",
+                        f"In {state} for {int(elapsed.total_seconds() / 60)}min but structured review receipts are missing for: {', '.join(missing_roles)}.",
+                        action=f"Record child receipts for roles: {', '.join(missing_roles)}"
+                    ))
+        if stale_roles:
+            violations.append(Violation(
+                "BLOCKING", "REVIEW_RECEIPTS_STALE",
+                f"Structured review receipts are stale for roles: {', '.join(sorted(stale_roles.keys()))}. Artifact changed after sign-off.",
+                action="Re-run review and record fresh child receipts"
+            ))
+
+    if pm_session_precondition and not pm_session_precondition.get("satisfied"):
+        violations.append(Violation(
+            "SIGNIFICANT", "PM_SESSION_RECEIPT_MISSING",
+            "No current PM coordination receipt is bound to this stage artifact.",
+            action="Record a pm_session receipt for the active PM session"
+        ))
+
     stage = state.lower()
     review_pattern = f"{name}-review-{stage}-"
-
     review_files = []
     if PROJECTS_DIR.exists():
         for f in PROJECTS_DIR.iterdir():
@@ -231,31 +263,27 @@ def check_inter_agent_review(project, state, state_info):
                 review_files.append(f)
 
     if not review_files:
-        # Check how long we've been in this state
         entered_at = _get_state_entered_at(project, state)
         if entered_at:
             elapsed = now_utc() - entered_at
             if elapsed > timedelta(minutes=10):
                 violations.append(Violation(
                     "SIGNIFICANT", "REVIEW_NOT_STARTED",
-                    f"In {state} for {int(elapsed.total_seconds() / 60)}min but no inter-agent "
-                    f"review file exists. Producer and critic should have been spawned.",
+                    f"In {state} for {int(elapsed.total_seconds() / 60)}min but no inter-agent review file exists. Producer and critic should have been spawned.",
                     action=f"Spawn producer ({state_info.get('producer_role')}) and critic ({state_info.get('critic_role')})"
                 ))
         return violations
 
-    # Check latest review file for stalled reviews
     latest = sorted(review_files)[-1]
     content = latest.read_text()
 
     if "NEEDS_REVISION" in content or "NEEDS_FIXES" in content:
-        # Check if producer has responded
         if "## Producer's Responses" in content:
             responses_section = content.split("## Producer's Responses")[1]
             if "[To be filled" in responses_section or responses_section.strip() == "":
                 violations.append(Violation(
                     "SIGNIFICANT", "REVIEW_STALLED_PRODUCER",
-                    f"Critic returned NEEDS_FIXES but producer hasn't responded yet.",
+                    "Critic returned NEEDS_FIXES but producer hasn't responded yet.",
                     action="Address critic's issues and update the review file"
                 ))
 
