@@ -20,12 +20,14 @@ states:
     exit_criteria: [tier_classified, projects_yaml_updated, linear_project_created]
     artifacts: [projects_yaml_entry, linear_project]
     approval_gate: false
+    transition_preconditions:
+      - type: validation_passed
 
   BRIEF:
     linear_state: Backlog
     actor: pa
     entry_criteria: [intake_complete]
-    exit_criteria: [brief_written, inter_agent_agreement_reached, pm_signed_off, operator_approved]
+    exit_criteria: [brief_written, review_gate_satisfied, operator_approved]
     artifacts: [brief_section_in_project_summary]
     approval_gate: true
     approval_by: operator
@@ -33,12 +35,23 @@ states:
     producer_role: pa
     critic_role: domain_expert_subagent
     pm_signoff_required: true
+    transition_preconditions:
+      - type: validation_passed
+      - type: approval_receipt
+        role: operator
+        decision: approved
+      - type: child_receipts
+        roles: [producer, critic, pm]
+        decision: approved
+      - type: pm_session_receipt
+        role: pm
+        statuses: [active, completed]
 
   DESIGN:
     linear_state: Backlog
     actor: design_subagent
     entry_criteria: [brief_approved]
-    exit_criteria: [design_spec_generated, critique_addressed, operator_approved]
+    exit_criteria: [design_spec_generated, critique_addressed, review_gate_satisfied, operator_approved]
     artifacts: [design_spec_json, wireframe_svgs, design_critique_report]
     approval_gate: true
     approval_by: operator
@@ -49,6 +62,17 @@ states:
     producer_role: design_subagent
     critic_role: ux_critic_subagent
     pm_signoff_required: true
+    transition_preconditions:
+      - type: validation_passed
+      - type: approval_receipt
+        role: operator
+        decision: approved
+      - type: child_receipts
+        roles: [producer, critic, pm]
+        decision: approved
+      - type: pm_session_receipt
+        role: pm
+        statuses: [active, completed]
     tools:
       - "scripts/design-producer.py --brief <brief_file> --output-dir <dir> --wireframes --verbose"
       - "scripts/wireframe-gen.py --input <spec.json> --output-dir <dir>"
@@ -62,7 +86,7 @@ states:
     linear_state: In Progress
     actor: architect_subagent
     entry_criteria: [brief_approved]
-    exit_criteria: [architecture_doc_written, inter_agent_agreement_reached, pm_signed_off, operator_approved]
+    exit_criteria: [architecture_doc_written, review_gate_satisfied, operator_approved]
     artifacts: [architecture_section_in_project_summary]
     approval_gate: true
     approval_by: operator
@@ -71,12 +95,23 @@ states:
     producer_role: architect_subagent
     critic_role: senior_engineer_subagent
     pm_signoff_required: true
+    transition_preconditions:
+      - type: validation_passed
+      - type: approval_receipt
+        role: operator
+        decision: approved
+      - type: child_receipts
+        roles: [producer, critic, pm]
+        decision: approved
+      - type: pm_session_receipt
+        role: pm
+        statuses: [active, completed]
 
   PLAN:
     linear_state: Todo
     actor: pa
     entry_criteria: [brief_approved]
-    exit_criteria: [linear_issues_created, inter_agent_agreement_reached, pm_signed_off, operator_approved]
+    exit_criteria: [linear_issues_created, review_gate_satisfied, operator_approved]
     artifacts: [plan_section, linear_issues]
     approval_gate: true
     approval_by: operator
@@ -84,6 +119,17 @@ states:
     producer_role: planner_subagent
     critic_role: tech_lead_subagent
     pm_signoff_required: true
+    transition_preconditions:
+      - type: validation_passed
+      - type: approval_receipt
+        role: operator
+        decision: approved
+      - type: child_receipts
+        roles: [producer, critic, pm]
+        decision: approved
+      - type: pm_session_receipt
+        role: pm
+        statuses: [active, completed]
 
   BUILD:
     linear_state: In Dev
@@ -92,12 +138,14 @@ states:
     exit_criteria: [all_tasks_complete, all_tests_pass, api_schemas_verified]
     artifacts: [code_on_branch, test_results, api_schema_section]
     approval_gate: false
+    transition_preconditions:
+      - type: validation_passed
 
   REVIEW:
     linear_state: Review
     actor: reviewer_subagent
     entry_criteria: [build_complete]
-    exit_criteria: [inter_agent_agreement_reached, pm_signed_off, operator_approved]
+    exit_criteria: [review_gate_satisfied, operator_approved]
     artifacts: [pr_with_review, review_summary]
     approval_gate: true
     approval_by: operator
@@ -106,6 +154,17 @@ states:
     critic_role: qa_subagent
     critic_task_hint: "qa_subagent: read the review checklist file (not the project doc). Verify claims against actual system state: check src/ vs dist/ discrepancies, verify git commits exist, check test output is real. Identify untested items, glossed-over checks, missing edge cases."
     pm_signoff_required: true
+    transition_preconditions:
+      - type: validation_passed
+      - type: approval_receipt
+        role: operator
+        decision: [approved, rejected]
+      - type: child_receipts
+        roles: [producer, critic, pm]
+        decision: approved
+      - type: pm_session_receipt
+        role: pm
+        statuses: [active, completed]
 
   SHIP:
     linear_state: In Prod
@@ -114,6 +173,8 @@ states:
     exit_criteria: [merged, deployed, tracking_updated, test_verification_passed, linear_audit_passed, human_e2e_passed]
     artifacts: [merged_pr, updated_projects_yaml, test_verification_report, linear_audit_report, human_e2e_section]
     approval_gate: false
+    transition_preconditions:
+      - type: validation_passed
 
   CLOSED:
     linear_state: Done
@@ -166,6 +227,12 @@ transitions:
   - from: SHIP
     to: CLOSED
     condition: "deployed and tracking_updated"
+
+enforcement:
+  require_linear_sync: true
+  transition_completion_requires:
+    - projects_yaml_updated
+    - linear_project_status_synced
 
 linear_state_map:
   Backlog: [INTAKE, BRIEF, DESIGN]

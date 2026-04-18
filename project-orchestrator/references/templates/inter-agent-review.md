@@ -22,6 +22,8 @@
 **Round:** [1 | 2 | 3]
 **Date:** [YYYY-MM-DD]
 
+> **Review-loop note:** round 3 is the hard cap unless an explicit operator override is recorded. If this round still leaves unresolved BLOCKING issues, record the operator checkpoint plus the canonical post-cap decision (`FREEZE_AND_ESCALATE`, `APPROVE`, or `CANCEL`) instead of silently starting round 4.
+
 ---
 
 ## Producer's Artifact Summary
@@ -70,23 +72,53 @@ Use resolution tags: **accept** / **reject** / **partial** (filled in by produce
 
 ## Sign-Off Block
 
-All three parties must sign off before the transition becomes available for operator approval.
+Use this block together with the canonical `review-status` / `status --verbose` output.
+
+Normal path:
+- all three parties sign off
+- `inter_agent_review.signed_off = true`
+- `inter_agent_review.gate_satisfied = true`
+
+Frozen-cap path:
+- producer and/or critic may remain waived after the cap
+- PM still signs off after the checkpoint, decision, and freeze artifact are recorded
+- `inter_agent_review.signed_off` can stay `false`
+- `inter_agent_review.gate_satisfied` is the go/no-go field that becomes `true` when the frozen-cap contract is valid
 
 **Producer sign-off:**
-- [ ] I have addressed all BLOCKING issues
-- [ ] The artifact reflects the agreed changes
-- **Signed:** [producer_role] | **Date:** [YYYY-MM-DD] | **Status:** [APPROVED | NEEDS_REVISION]
+- [ ] I have addressed all BLOCKING issues, or I have recorded what remains unresolved in the checkpoint / freeze path
+- [ ] The artifact reflects the agreed changes or the explicit frozen carry-forward state
+- **Signed:** [producer_role] | **Date:** [YYYY-MM-DD] | **Status:** [APPROVED | NEEDS_REVISION | WAIVED_FROZEN_CAP]
 
 **Critic sign-off:**
-- [ ] All BLOCKING issues are resolved
+- [ ] All BLOCKING issues are resolved, or they are explicitly captured in the checkpoint / freeze path
 - [ ] Remaining SIGNIFICANT issues are either resolved or explicitly accepted as risk
-- **Signed:** [critic_role] | **Date:** [YYYY-MM-DD] | **Status:** [APPROVED | NEEDS_REVISION]
+- **Signed:** [critic_role] | **Date:** [YYYY-MM-DD] | **Status:** [APPROVED | NEEDS_REVISION | WAIVED_FROZEN_CAP]
 
 **PM sign-off:**
 - [ ] Artifact meets the goals stated in the brief
 - [ ] No scope creep introduced
-- [ ] Ready for operator review
-- **Signed:** pa (PM) | **Date:** [YYYY-MM-DD] | **Status:** [APPROVED | ANOTHER_ROUND_REQUESTED]
+- [ ] Ready for operator review because `inter_agent_review.gate_satisfied` is true under the active path
+- **Signed:** pa (PM) | **Date:** [YYYY-MM-DD] | **Status:** [APPROVED | ANOTHER_ROUND_REQUESTED | FREEZE_AND_ESCALATE | CANCEL]
+
+## Round-Cap Checkpoint
+
+Fill this section in whenever the critic does not approve a round. After round 3, this checkpoint is mandatory before any frozen-cap decision can be treated as valid.
+
+- **Current round:** [1 | 2 | 3]
+- **Max rounds:** 3
+- **Another round permitted:** [yes | no]
+- **Unresolved BLOCKING issues:**
+  - [Issue]
+- **Unresolved SIGNIFICANT issues:**
+  - [Issue]
+- **Producer response status:** [not started | in progress | responded]
+- **Canonical next action:** [record-review-checkpoint | record-review-loop-decision | record-freeze-artifact | operator review]
+- **Decision after cap:** [n/a | FREEZE_AND_ESCALATE | APPROVE | CANCEL]
+- **Checkpoint file:** [projects/<name>-review-checkpoint-<state>-roundN.md]
+- **Freeze artifact file:** [projects/<name>-freeze-artifact-<state>.md | n/a]
+
+> If the canonical post-cap decision is `CANCEL`, forward transitions stay blocked until the project is explicitly resolved.
 
 ---
 

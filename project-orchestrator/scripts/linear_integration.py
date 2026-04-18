@@ -2,7 +2,7 @@
 """Linear API integration for the project-orchestrator framework.
 
 Provides CLI commands for managing Linear issues, projects, and state transitions.
-Uses stdlib only (urllib.request, json). Token from LINEAR_API_TOKEN env var.
+Uses stdlib only (urllib.request, json). Token from LINEAR_API_TOKEN env var or 1Password.
 
 Usage:
     linear_integration.py <command> [options]
@@ -29,9 +29,10 @@ import urllib.error
 # --- Constants ---
 
 LINEAR_API_URL = "https://api.linear.app/graphql"
-TEAM_ID = os.environ.get("LINEAR_TEAM_ID", "")
-DEFAULT_ASSIGNEE_ID = os.environ.get("LINEAR_DEFAULT_ASSIGNEE_ID", "")
-DEFAULT_PROJECT_LEAD_ID = os.environ.get("LINEAR_PROJECT_LEAD_ID", "")
+TEAM_ID = "2a500f43-ea55-4e99-814d-22b35a344b88"
+PA_OPS_BOT_ID = "dd106e48-fa9d-42d3-af73-9298a3089219"
+JUSTIN_USER_ID = "25bce36a-c2cc-459f-9c1e-7b1390a0cc47"
+DEFAULT_ASSIGNEE_ID = PA_OPS_BOT_ID  # All agent-created issues assigned to bot by default
 
 LINEAR_STATES = {
     "Backlog": "dd51040a-9d6e-4c30-849a-8301f50539b4",
@@ -72,18 +73,37 @@ VALID_TRANSITIONS = {
 # --- Token retrieval ---
 
 def get_token():
-    """Get Linear API token from LINEAR_API_TOKEN env var or /tmp/.linear_token."""
-    token = os.environ.get("LINEAR_API_TOKEN") or os.environ.get("LINEAR_TOKEN")
+    """Get Linear API token from (in order): env var, /tmp/.linear_token, 1Password CLI.
+    
+    Deterministic resolution - checks each source in order, fails with clear error.
+    """
+    # 1. Environment variable
+    token = os.environ.get("LINEAR_API_TOKEN")
     if token:
         return token.strip()
+
+    # 2. Token file (written by PA agent sessions)
+    token_file = "/tmp/.linear_token"
     try:
-        with open("/tmp/.linear_token") as f:
+        with open(token_file) as f:
             token = f.read().strip()
         if token:
             return token
     except (FileNotFoundError, PermissionError):
         pass
-    print(json.dumps({"error": "No LINEAR_API_TOKEN available"}), file=sys.stderr)
+
+    # 3. 1Password CLI
+    try:
+        result = subprocess.run(
+            ["op", "read", "op://OpenClaw-Justin-PA/linear/credential"],
+            capture_output=True, text=True, timeout=15
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    print(json.dumps({"error": "No LINEAR_API_TOKEN env var and 1Password lookup failed"}), file=sys.stderr)
     sys.exit(2)
 
 
@@ -135,7 +155,6 @@ def graphql(query, variables=None, token=None):
 
 # --- Commands ---
 
-
 def cmd_create_project(args):
     create_query = """
     mutation CreateProject($input: ProjectCreateInput!) {
@@ -155,12 +174,11 @@ def cmd_create_project(args):
         "input": {
             "name": args.name,
             "teamIds": [TEAM_ID],
+            "leadId": JUSTIN_USER_ID,
         }
     }
     if short_desc:
         variables["input"]["description"] = short_desc
-    if DEFAULT_PROJECT_LEAD_ID:
-        variables["input"]["leadId"] = DEFAULT_PROJECT_LEAD_ID
 
     result = graphql(create_query, variables)
     project = result["data"]["projectCreate"]["project"]
@@ -213,9 +231,7 @@ def cmd_create_issue(args):
         variables["input"]["projectId"] = args.project_id
     if args.description:
         variables["input"]["description"] = unescape_text(args.description)
-    assignee_id = args.assignee or DEFAULT_ASSIGNEE_ID
-    if assignee_id:
-        variables["input"]["assigneeId"] = assignee_id
+    variables["input"]["assigneeId"] = args.assignee or DEFAULT_ASSIGNEE_ID
     if args.parent_id:
         variables["input"]["parentId"] = args.parent_id
 

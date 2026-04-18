@@ -146,6 +146,27 @@ The repository includes a reusable review template at:
 references/templates/inter-agent-review.md
 ```
 
+## PM relay watchdog, correct usage
+
+When your runtime cannot keep a persistent PM session alive, use the PM relay helper as an explicitly scoped watchdog.
+
+Recommended commands:
+
+```bash
+python3 skills/project-orchestrator/scripts/pm-relay-helper.py activate <name> --state <STATE>
+python3 skills/project-orchestrator/scripts/pm-relay-helper.py list-active
+python3 skills/project-orchestrator/scripts/pm-relay-helper.py sweep-active
+python3 skills/project-orchestrator/scripts/pm-relay-helper.py deactivate <name>
+```
+
+Rules:
+- track only projects that are actively in flight
+- keep the active-project list as the single source of truth for relay scope
+- do not run global sweeps across every tracked project
+- do not respawn a PM owner if a real blocker already explains the gap
+- do not respawn into an operator-approval-only wait state
+- keep idle watchdog runs silent, and only send user-facing updates when the watchdog actually changes something meaningful
+
 ## Linear integration
 
 Linear support is built in, but it is a workflow choice rather than a documentation prerequisite.
